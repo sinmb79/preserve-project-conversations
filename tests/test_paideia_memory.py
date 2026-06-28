@@ -37,6 +37,8 @@ class PaideiaMemoryCliTests(unittest.TestCase):
         env: dict[str, str] | None = None,
     ) -> subprocess.CompletedProcess[str]:
         command_env = os.environ.copy()
+        command_env.setdefault("PYTHONIOENCODING", "utf-8")
+        command_env.setdefault("PYTHONUTF8", "1")
         if env:
             command_env.update(env)
         return subprocess.run(
@@ -44,6 +46,8 @@ class PaideiaMemoryCliTests(unittest.TestCase):
             cwd=str(cwd or ROOT),
             env=command_env,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             capture_output=True,
             check=False,
         )

@@ -216,6 +216,16 @@ def now_utc() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def configure_stdio() -> None:
+    for stream_name in ("stdout", "stderr"):
+        stream = getattr(sys, stream_name, None)
+        if hasattr(stream, "reconfigure"):
+            try:
+                stream.reconfigure(encoding="utf-8", errors="replace")
+            except Exception:
+                pass
+
+
 def slugify(value: str) -> str:
     normalized = unicodedata.normalize("NFKC", value.strip().lower())
     safe = re.sub(r"[^\w가-힣.-]+", "-", normalized, flags=re.UNICODE).strip("-._")
@@ -1568,6 +1578,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    configure_stdio()
     parser = build_parser()
     args = parser.parse_args(argv)
     return args.func(args)
