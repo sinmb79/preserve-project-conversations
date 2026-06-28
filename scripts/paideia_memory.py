@@ -233,6 +233,7 @@ class SecretFinding:
 class LibraryEntry:
     project: str
     session_id: str
+    sort_key: str
     title: str
     date: str
     keywords: list[str]
@@ -811,15 +812,19 @@ def derive_patterns(evidence: dict[str, list[Evidence]]) -> dict[str, list[str]]
     return {"stable": stable, "rules": rules}
 
 
-def section_bullets(markdown: str, heading: str) -> list[str]:
+def section_bullets(markdown: str, heading: str, level: str = "##") -> list[str]:
     lines = markdown.splitlines()
     capture = False
     bullets: list[str] = []
+    heading_marker = f"{level} {heading}"
+    break_prefixes = ["# "]
+    if len(level) >= 2:
+        break_prefixes.extend("#" * size + " " for size in range(2, len(level) + 1))
     for line in lines:
-        if line.strip() == f"## {heading}":
+        if line.strip() == heading_marker:
             capture = True
             continue
-        if capture and line.startswith("## "):
+        if capture and any(line.startswith(prefix) for prefix in break_prefixes):
             break
         if capture and line.startswith("- "):
             bullets.append(line[2:].strip())
@@ -1490,6 +1495,19 @@ def session_date(session: Path) -> str:
     return f"{match.group(1)}-{match.group(2)}-{match.group(3)}"
 
 
+def session_sort_key(session_id: str) -> str:
+    match = re.match(r"(\d{8}T\d{6}\d*)Z?", session_id)
+    if not match:
+        return session_id
+    return match.group(1)
+
+
+def catalog_sort_value(item: dict[str, Any]) -> int:
+    raw = str(item.get("sort_key") or item.get("session_id") or item.get("date") or "")
+    digits = re.sub(r"\D", "", raw)
+    return int(digits or "0")
+
+
 def extract_keywords(*texts: str, limit: int = 10) -> list[str]:
     important_terms = {
         "llm",
@@ -1596,12 +1614,30 @@ def underline_and_annotate(text: str, keywords: list[str], footnotes: dict[str, 
     return sentence + markers
 
 
-def top_evidence_items(evidence: dict[str, list[Evidence]], limit: int = 14) -> list[tuple[str, str, Evidence]]:
+def top_evidence_items(
+    evidence: dict[str, list[Evidence]],
+    limit: int = 14,
+    per_category: int = 2,
+) -> list[tuple[str, str, Evidence]]:
     items: list[tuple[str, str, Evidence]] = []
     title_by_key = {key: title for key, title, _ in CATEGORY_DEFS}
+    seen: set[tuple[int, int, int, str]] = set()
     for key, _, _ in CATEGORY_DEFS:
-        for item in evidence.get(key, [])[:3]:
+        category_count = 0
+        for item in evidence.get(key, []):
+            dedupe_key = (
+                item.message_index,
+                item.line_start,
+                item.line_end,
+                normalize_for_match(item.text),
+            )
+            if dedupe_key in seen:
+                continue
+            seen.add(dedupe_key)
             items.append((key, title_by_key[key], item))
+            category_count += 1
+            if category_count >= per_category:
+                break
     items.sort(key=lambda value: (-value[2].score, value[2].message_index))
     return items[:limit]
 
@@ -1666,17 +1702,17 @@ def render_lecture_notes(project: str, session: Path) -> str:
     for key, title, _ in CATEGORY_DEFS:
         if evidence.get(key):
             objective_count += 1
-            lines.append(f"- Understand `{title}` and trace it back to the raw conversation.")
+            lines.append(f"- `{title}`을 이해하고 `01_raw_conversation.md`의 원문 근거로 역추적합니다.")
     if not objective_count:
-        lines.append("- Understand the session's main idea and verify it against the raw conversation.")
+        lines.append("- 세션의 핵심 주제를 이해하고 원본 대화로 검증합니다.")
 
     lines.extend(["", "## Annotated Key Notes", ""])
-    for _, title, item in top_evidence_items(evidence):
+    for category, title, item in top_evidence_items(evidence):
         local_keywords = extract_keywords(item.text, title, limit=4) or keywords[:4]
         lines.append(f"### {title}")
         lines.append(f"- Note: {underline_and_annotate(item.text, local_keywords, footnotes)}")
         lines.append(f"- Source: `01_raw_conversation.md` ({evidence_ref(item)})")
-        lines.append(f"- Why it matters: {explain_retention_reason(_)}")
+        lines.append(f"- Why it matters: {explain_retention_reason(category)}")
         lines.append("")
 
     lines.extend(["## Quoted Source Phrases", ""])
@@ -1838,14 +1874,24 @@ def notes_command(args: argparse.Namespace) -> int:
     if not list_sessions(project_root):
         raise SystemExit(f"No complete sessions found for project: {args.project}")
     session = resolve_session(project_root, args.session)
-    output_dir = Path(args.output_dir).resolve() if args.output_dir else session
-    lecture_path = output_dir / "06_lecture_notes.md"
-    development_path = output_dir / "07_development_notes.md"
-    write_text(lecture_path, render_lecture_notes(args.project, session))
-    write_text(development_path, render_development_notes(args.project, session))
+    lecture_text = render_lecture_notes(args.project, session)
+    development_text = render_development_notes(args.project, session)
+    lecture_path = session / "06_lecture_notes.md"
+    development_path = session / "07_development_notes.md"
+    write_text(lecture_path, lecture_text)
+    write_text(development_path, development_text)
+    printed_paths = [lecture_path, development_path]
+    if args.output_dir:
+        output_dir = Path(args.output_dir).resolve()
+        output_lecture_path = output_dir / "06_lecture_notes.md"
+        output_development_path = output_dir / "07_development_notes.md"
+        if output_dir != session:
+            write_text(output_lecture_path, lecture_text)
+            write_text(output_development_path, development_text)
+            printed_paths.extend([output_lecture_path, output_development_path])
     rebuild_project_indexes(project_root, args.project)
-    print(lecture_path)
-    print(development_path)
+    for path in printed_paths:
+        print(path)
     return 0
 
 
@@ -1894,6 +1940,7 @@ def build_library_entries(vault: Path, project: str | None, generate_notes: bool
                 LibraryEntry(
                     project=project_name,
                     session_id=session.name,
+                    sort_key=session_sort_key(session.name),
                     title=short_text(title, 96),
                     date=session_date(session),
                     keywords=keywords,
@@ -1919,6 +1966,7 @@ def library_entry_dict(entry: LibraryEntry, vault: Path) -> dict[str, Any]:
     return {
         "project": entry.project,
         "session_id": entry.session_id,
+        "sort_key": entry.sort_key,
         "title": entry.title,
         "date": entry.date,
         "keywords": entry.keywords,
@@ -1999,9 +2047,9 @@ def library_list_command(args: argparse.Namespace) -> int:
     if args.sort == "title":
         catalog.sort(key=lambda item: str(item.get("title", "")))
     elif args.sort == "project":
-        catalog.sort(key=lambda item: (str(item.get("project", "")), str(item.get("date", ""))), reverse=True)
+        catalog.sort(key=lambda item: (str(item.get("project", "")), -catalog_sort_value(item), str(item.get("title", ""))))
     else:
-        catalog.sort(key=lambda item: str(item.get("date", "")), reverse=True)
+        catalog.sort(key=lambda item: catalog_sort_value(item), reverse=True)
     if args.keyword:
         normalized = normalize_for_match(args.keyword)
         catalog = [
@@ -2044,7 +2092,14 @@ def library_search_command(args: argparse.Namespace) -> int:
         score = score_text(haystack, args.query, query_tokens, priority=0)
         if score > 0:
             results.append((score, item))
-    results.sort(key=lambda pair: (-pair[0], str(pair[1].get("date", ""))), reverse=False)
+    results.sort(
+        key=lambda pair: (
+            -pair[0],
+            -catalog_sort_value(pair[1]),
+            str(pair[1].get("project", "")),
+            str(pair[1].get("title", "")),
+        )
+    )
     for score, item in results[: args.limit]:
         print(f"[score={score}] {item.get('date')} | {item.get('project')} | {item.get('title')}")
         print(f"- keywords: {', '.join(str(keyword) for keyword in item.get('keywords', [])[:8])}")
@@ -2102,16 +2157,22 @@ def export_post_command(args: argparse.Namespace) -> int:
             "",
             "2/ 핵심 학습 포인트:",
         ]
-        lines.extend(f"- {short_text(item, 180)}" for item in bullets)
+        lines.extend(f"- {short_text(item, 96)}" for item in bullets)
+        dev_bullets: list[str] = []
+        for heading in ["Planning", "Implementation", "Verification", "Release"]:
+            for bullet in section_bullets(development, heading, level="###")[:1]:
+                if "No explicit signal captured" not in bullet:
+                    dev_bullets.append(f"{heading}: {bullet}")
+        if not dev_bullets:
+            dev_bullets = section_bullets(development, "Major Flow")[:4]
         lines.extend(
             [
                 "",
                 "3/ 개발/검증 기록:",
-                short_text(extract_section(development, "Major Flow", max_lines=8), 260),
-                "",
-                "4/ 전체 노트와 원문 출처는 로컬 memory vault에서 확인할 수 있습니다.",
             ]
         )
+        lines.extend(f"- {short_text(item, 110)}" for item in dev_bullets[:4])
+        lines.extend(["", "4/ 전체 노트와 원문 출처는 로컬 memory vault에서 확인할 수 있습니다."])
     else:
         lines = [
             f"# {args.project}: Lecture Note Digest",

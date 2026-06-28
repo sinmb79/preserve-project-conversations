@@ -1,6 +1,7 @@
 import contextlib
 import importlib.util
 import io
+import json
 import os
 import subprocess
 import sys
@@ -187,6 +188,69 @@ class PaideiaMemoryCliTests(unittest.TestCase):
             self.assertEqual(search.returncode, 0, search.stderr)
             self.assertIn("06_lecture_notes.md", search.stdout)
 
+    def test_make_notes_output_dir_keeps_canonical_session_notes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            source = tmp_path / "conversation.md"
+            source.write_text(DEVELOPMENT_SAMPLE, encoding="utf-8")
+            vault = tmp_path / "vault"
+            ingest = self.run_cli(
+                "ingest",
+                "--project",
+                "notes-copy",
+                "--input",
+                str(source),
+                "--vault",
+                str(vault),
+            )
+            self.assertEqual(ingest.returncode, 0, ingest.stderr)
+            session = Path(ingest.stdout.strip())
+            output_dir = tmp_path / "published-notes"
+
+            notes = self.run_cli(
+                "make-notes",
+                "--project",
+                "notes-copy",
+                "--vault",
+                str(vault),
+                "--output-dir",
+                str(output_dir),
+            )
+
+            self.assertEqual(notes.returncode, 0, notes.stderr)
+            self.assertTrue((session / "06_lecture_notes.md").exists())
+            self.assertTrue((session / "07_development_notes.md").exists())
+            self.assertTrue((output_dir / "06_lecture_notes.md").exists())
+            self.assertTrue((output_dir / "07_development_notes.md").exists())
+
+    def test_top_evidence_items_deduplicates_repeated_sentence(self) -> None:
+        evidence = {
+            "requirements": [
+                MEMORY_MODULE.Evidence(
+                    message_index=1,
+                    role="user",
+                    line_start=1,
+                    line_end=1,
+                    text="같은 요구를 중복으로 설명합니다.",
+                    score=8,
+                )
+            ],
+            "small_details": [
+                MEMORY_MODULE.Evidence(
+                    message_index=1,
+                    role="user",
+                    line_start=1,
+                    line_end=1,
+                    text="같은 요구를 중복으로 설명합니다.",
+                    score=7,
+                )
+            ],
+        }
+
+        items = MEMORY_MODULE.top_evidence_items(evidence)
+
+        self.assertEqual(len(items), 1)
+
     def test_library_index_search_book_and_post_exports(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
@@ -249,7 +313,49 @@ class PaideiaMemoryCliTests(unittest.TestCase):
                 str(post),
             )
             self.assertEqual(exported_post.returncode, 0, exported_post.stderr)
-            self.assertIn("1/ library-project", post.read_text(encoding="utf-8"))
+            post_text = post.read_text(encoding="utf-8")
+            self.assertIn("1/ library-project", post_text)
+            self.assertIn("3/ 개발/검증 기록:", post_text)
+            self.assertNotIn("Planning: why the work exists and what must not be lost. - Implementation", post_text)
+
+    def test_library_sorting_prefers_project_ascending_and_latest_search_result(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            vault = tmp_path / "vault"
+            library = vault / "_library"
+            library.mkdir(parents=True)
+            catalog = [
+                {
+                    "project": "zeta",
+                    "session_id": "20260101T010101000000Z-old",
+                    "sort_key": "20260101T010101000000",
+                    "title": "same topic",
+                    "date": "2026-01-01",
+                    "keywords": ["same"],
+                    "summary": "same topic",
+                    "session_path": "zeta/old",
+                },
+                {
+                    "project": "alpha",
+                    "session_id": "20260601T010101000000Z-new",
+                    "sort_key": "20260601T010101000000",
+                    "title": "same topic",
+                    "date": "2026-06-01",
+                    "keywords": ["same"],
+                    "summary": "same topic",
+                    "session_path": "alpha/new",
+                },
+            ]
+            (library / "catalog.json").write_text(json.dumps(catalog, ensure_ascii=False), encoding="utf-8")
+
+            listed = self.run_cli("library-list", "--vault", str(vault), "--sort", "project")
+            searched = self.run_cli("library-search", "--vault", str(vault), "--query", "same")
+
+            self.assertEqual(listed.returncode, 0, listed.stderr)
+            self.assertLess(listed.stdout.index("alpha"), listed.stdout.index("zeta"))
+            self.assertEqual(searched.returncode, 0, searched.stderr)
+            first_result = next(line for line in searched.stdout.splitlines() if line.startswith("[score="))
+            self.assertIn("alpha", first_result)
 
     def test_fail_on_secret_blocks_ingest_without_partial_session(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -684,6 +790,22 @@ class PaideiaMemoryCliTests(unittest.TestCase):
                 for name in names:
                     data = archive.read(name).decode("utf-8")
                     self.assertNotIn(secret, data)
+
+            raw_output = tmp_path / "share-with-raw.zip"
+            exported_raw = self.run_cli(
+                "export-share",
+                "--project",
+                "share-project",
+                "--vault",
+                str(vault),
+                "--output",
+                str(raw_output),
+                "--include-raw",
+            )
+            self.assertEqual(exported_raw.returncode, 0, exported_raw.stderr)
+            with zipfile.ZipFile(raw_output) as archive:
+                names = archive.namelist()
+                self.assertTrue(any(name.endswith("01_raw_conversation.md") for name in names))
 
     @unittest.skipUnless(MEMORY_MODULE.__dict__.get("seal_payload"), "seal helpers unavailable")
     def test_seal_and_unseal_vault_roundtrip_when_crypto_is_available(self) -> None:

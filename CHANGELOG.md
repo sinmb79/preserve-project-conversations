@@ -2,6 +2,22 @@
 
 All notable changes to Preserve Project Conversations are documented here.
 
+## v0.3.1 - 2026-06-28
+
+### Changed
+
+- Reduced duplicate evidence rows in lecture notes while preserving source references.
+- Improved `make-notes --output-dir` so canonical session notes are always written inside the session and optional external output is treated as a copy.
+- Stabilized library sorting: project lists sort by project name with newest sessions first, and search ties prefer newer sessions.
+- Improved tweet/thread exports by splitting development evidence into short editable bullets.
+- Localized lecture-note learning objectives into Korean.
+
+### Security and Release
+
+- Extended package asset checks to validate both wheel and source distribution contents.
+- Added required checks for skillpack metadata files inside release artifacts.
+- Added regression coverage for explicit raw transcript inclusion in share exports.
+
 ## v0.3.0 - 2026-06-28
 
 ### Added
