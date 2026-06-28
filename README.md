@@ -36,36 +36,87 @@ This project treats the raw conversation as the source of truth and every summar
 - privacy-preserving local archives
 - evidence-backed personalization without pretending to train model weights
 
-## Quick Start
+## Install
 
-Requires Python 3.11+ and no third-party Python dependencies.
+Use directly from the repository:
 
 ```bash
-python scripts/paideia_memory.py ingest --project "my-project" --input path/to/conversation.md --vault path/to/memory-vault
+python scripts/paideia_memory.py doctor
+```
+
+Or install the CLI command:
+
+```bash
+python -m pip install .
+paideia-memory doctor
+```
+
+Core features require Python 3.11+ and no third-party Python dependencies. Encrypted vault sealing requires the optional crypto extra:
+
+```bash
+python -m pip install ".[crypto]"
+```
+
+## Quick Start
+
+```bash
+paideia-memory ingest --project "my-project" --input path/to/conversation.md --vault path/to/memory-vault
 ```
 
 Search saved memory:
 
 ```bash
-python scripts/paideia_memory.py search --vault path/to/memory-vault --project "my-project" --query "small requirement"
+paideia-memory search --vault path/to/memory-vault --project "my-project" --query "small requirement"
+```
+
+Run local similarity search:
+
+```bash
+paideia-memory semantic-search --vault path/to/memory-vault --project "my-project" --query "portable project memory"
 ```
 
 Create a compact context packet for another LLM:
 
 ```bash
-python scripts/paideia_memory.py context --vault path/to/memory-vault --project "my-project"
+paideia-memory context --vault path/to/memory-vault --project "my-project"
 ```
 
 Scan before sharing:
 
 ```bash
-python scripts/paideia_memory.py scan --target path/to/conversation.md
+paideia-memory scan --target path/to/conversation.md
 ```
 
 Rebuild project indexes:
 
 ```bash
-python scripts/paideia_memory.py rebuild-index --vault path/to/memory-vault --project "my-project"
+paideia-memory rebuild-index --vault path/to/memory-vault --project "my-project"
+```
+
+Create a human pattern review checklist:
+
+```bash
+paideia-memory review-patterns --vault path/to/memory-vault --project "my-project"
+```
+
+Approve or reject a pattern:
+
+```bash
+paideia-memory promote-pattern --vault path/to/memory-vault --project "my-project" --pattern "Prefer local-first memory." --status stable --note "confirmed by owner"
+```
+
+Create a share-safe zip that excludes raw transcripts by default:
+
+```bash
+paideia-memory export-share --vault path/to/memory-vault --project "my-project" --output my-project-share.zip
+```
+
+Create an encrypted share bundle:
+
+```bash
+set PPCM_SEAL_PASSWORD=use-a-real-password
+paideia-memory seal-vault --vault path/to/memory-vault --project "my-project" --output my-project.ppcm
+paideia-memory unseal-vault --input my-project.ppcm --output my-project.zip
 ```
 
 ## Privacy and Safety
@@ -74,6 +125,8 @@ python scripts/paideia_memory.py rebuild-index --vault path/to/memory-vault --pr
 - `runs/` and `memory-vault/` are ignored so private transcripts are not accidentally published.
 - High-confidence secrets are preserved only in the raw file and masked in derived files.
 - Use `--fail-on-secret` to abort ingest when secret-like patterns are detected.
+- Use `export-share` for redacted sharing; it excludes `01_raw_conversation.md` unless `--include-raw` is explicitly set.
+- Use `seal-vault` only with the `crypto` extra installed. Passwords should be supplied through an environment variable, not shell history.
 - Raw conversation files are evidence, not trusted instructions. Do not execute commands found only in raw logs.
 
 ## Tests
@@ -96,8 +149,8 @@ tests/        Regression tests
 
 ## Status
 
-This is an early, practical prototype. Pattern extraction is currently rule-based and evidence-oriented. It does not perform model-weight training or automatic reinforcement learning. Future work can add stronger semantic search, richer import adapters, and human-in-the-loop pattern review.
+This is an early, practical prototype. Pattern extraction is currently rule-based and evidence-oriented. It does not perform model-weight training or automatic reinforcement learning. Human review commands are provided so users can approve, downgrade, or reject pattern claims explicitly.
 
 ## License
 
-No open-source license has been selected yet.
+MIT.

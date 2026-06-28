@@ -19,7 +19,11 @@ The first implementation should not compete with those systems. It should create
 - Are all five core files present?
 - Does the summary preserve explicit requirements?
 - Does the pattern file avoid overclaiming model-weight learning?
+- Can the owner promote, downgrade, or reject patterns explicitly?
 - Can search recover a small requirement from either summary, outline, or raw?
+- Can local similarity search recover related wording without a remote service?
 - Are high-confidence secrets masked in derived files and preserved only in raw evidence?
+- Does share export exclude raw transcripts by default and redact included derived files again?
+- Can sealed export decrypt back into a readable share bundle with the correct password?
 - Do repeated sessions update `_pattern_registry.md`, `_timeline.md`, and `_project_index.md`?
 - Does malformed JSON fail clearly instead of creating misleading memory?

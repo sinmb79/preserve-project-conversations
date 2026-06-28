@@ -49,6 +49,22 @@ List sessions chronologically with compact summaries and paths.
 
 Merge session patterns and candidate signals. Promote by distinct-session repetition: `candidate` when seen in one session, `observed` when seen across two sessions or explicitly stable once, and `stable` when confirmed across three sessions or explicitly stable twice.
 
+### _pattern_review.md
+
+Create a human-readable checklist of accumulated patterns for owner review.
+
+### _pattern_overrides.json
+
+Store human-reviewed pattern overrides. Supported statuses are `candidate`, `observed`, `stable`, and `rejected`. Overrides are applied after automatic session counting.
+
 ## Retrieval protocol
 
 Start from `_pattern_registry.md` when present, then the latest `05_patterns.md`, then `04_summary.md`, then outlines, then raw. Reverse the order when the user asks "what did I say exactly?" or challenges a summary.
+
+`semantic-search` is local n-gram similarity search. It is not remote embedding, model training, or model-weight reinforcement.
+
+## Sharing protocol
+
+`export-share` creates a zip bundle of derived memory files and project indexes. It excludes `01_raw_conversation.md` by default and redacts high-confidence secrets again while writing the bundle.
+
+`seal-vault` encrypts the share bundle with the optional `cryptography` dependency. Passwords should come from an environment variable or secure prompt.

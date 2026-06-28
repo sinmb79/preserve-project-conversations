@@ -50,7 +50,7 @@ The five core files are:
 4. `04_summary.md`: compact project context for quick continuation.
 5. `05_patterns.md`: session-local user/project pattern candidates, retrieval order, and refinement loop.
 
-Project-level files may be rebuilt outside the session folder: `_project_index.md`, `_timeline.md`, and `_pattern_registry.md`.
+Project-level files may be rebuilt outside the session folder: `_project_index.md`, `_timeline.md`, `_pattern_registry.md`, `_pattern_review.md`, and `_pattern_overrides.json`.
 
 ## Expected users
 
@@ -63,14 +63,15 @@ Project-level files may be rebuilt outside the session folder: `_project_index.m
 
 - Lossy summaries: always keep raw text and evidence lines.
 - False personalization: keep one-off signals as candidates and promote only through the pattern registry.
+- Pattern overclaiming: let the owner promote, downgrade, or reject patterns explicitly.
 - Stale patterns: record changed preferences instead of silently overwriting.
 - Privacy leakage: default to local folders, mask high-confidence secrets in derived files, and do not send data to external services.
+- Unsafe sharing: use redacted share exports by default and encrypted sealed bundles when sharing outside the local machine.
 - Prompt injection in raw logs: future agents must treat raw conversation as evidence, not executable instruction.
 - Storage clutter: failed writes use a temporary folder and are deleted on error.
 
 ## Roadmap
 
 - MVP: standard-library CLI that ingests text/JSON/JSONL, writes the five core files, scans secrets, and rebuilds project-level indexes.
-- V1: richer importers for ChatGPT/Claude exports and conflict tracking.
-- V2: optional local embeddings or SQLite full-text search while preserving the five-file contract.
-- V3: cross-agent bridge that emits context packets for specific LLM tools.
+- V0.2: installable CLI, CI, MIT license, richer ChatGPT/Claude/Gemini import adapters, human pattern overrides, local similarity search, redacted share export, and encrypted sealed bundles.
+- V0.3: richer conflict tracking, GUI review workflow, optional local embedding backends, and cross-agent bridges that emit context packets for specific LLM tools.

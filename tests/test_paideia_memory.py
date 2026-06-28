@@ -1,10 +1,12 @@
 import contextlib
 import importlib.util
 import io
+import os
 import subprocess
 import sys
 import tempfile
 import unittest
+import zipfile
 from datetime import datetime as real_datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -28,10 +30,19 @@ SAMPLE = """보스: LLM과 개발 계획을 세우면 요약 과정에서 작은
 
 
 class PaideiaMemoryCliTests(unittest.TestCase):
-    def run_cli(self, *args: str, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
+    def run_cli(
+        self,
+        *args: str,
+        cwd: Path | None = None,
+        env: dict[str, str] | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        command_env = os.environ.copy()
+        if env:
+            command_env.update(env)
         return subprocess.run(
             [sys.executable, "-B", str(SCRIPT), *args],
             cwd=str(cwd or ROOT),
+            env=command_env,
             text=True,
             capture_output=True,
             check=False,
@@ -302,6 +313,55 @@ class PaideiaMemoryCliTests(unittest.TestCase):
             self.assertNotEqual(bad.returncode, 0)
             self.assertIn("Invalid JSON conversation export", bad.stderr)
 
+    def test_json_import_supports_common_llm_export_shapes(self) -> None:
+        chatgpt_export = [
+            {
+                "mapping": {
+                    "root": {"parent": None, "children": ["user"]},
+                    "user": {
+                        "parent": "root",
+                        "children": ["assistant"],
+                        "message": {
+                            "create_time": 1,
+                            "author": {"role": "user"},
+                            "content": {"parts": ["보스: ChatGPT export 대화도 저장해야 합니다."]},
+                        },
+                    },
+                    "assistant": {
+                        "parent": "user",
+                        "children": [],
+                        "message": {
+                            "create_time": 2,
+                            "author": {"role": "assistant"},
+                            "content": {"parts": ["줄리아: 저장하겠습니다."]},
+                        },
+                    },
+                }
+            }
+        ]
+        claude_export = {
+            "chat_messages": [
+                {"sender": "human", "text": "보스: Claude export 원본도 저장해야 합니다."},
+                {"sender": "assistant", "text": "줄리아: 확인했습니다."},
+            ]
+        }
+        gemini_export = {
+            "turns": [
+                {"role": "user", "parts": [{"text": "보스: Gemini turns 형식도 저장해야 합니다."}]},
+                {"role": "model", "parts": [{"text": "줄리아: 처리하겠습니다."}]},
+            ]
+        }
+
+        for obj, phrase in [
+            (chatgpt_export, "ChatGPT export"),
+            (claude_export, "Claude export"),
+            (gemini_export, "Gemini turns"),
+        ]:
+            messages = MEMORY_MODULE.messages_from_json_obj(obj)
+            self.assertGreaterEqual(len(messages), 2)
+            self.assertEqual(messages[0].role, "user")
+            self.assertIn(phrase, messages[0].content)
+
     def test_neutral_sessions_do_not_promote_unrelated_user_patterns(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
@@ -361,6 +421,168 @@ class PaideiaMemoryCliTests(unittest.TestCase):
             self.assertTrue(first_session.exists())
             self.assertTrue(second_session.exists())
             self.assertEqual(second_session.name, first_session.name + "-1")
+
+    def test_human_pattern_review_and_promotion_override_registry(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            source = tmp_path / "conversation.md"
+            source.write_text(SAMPLE, encoding="utf-8")
+            vault = tmp_path / "vault"
+            ingest = self.run_cli(
+                "ingest",
+                "--project",
+                "human-review",
+                "--input",
+                str(source),
+                "--vault",
+                str(vault),
+            )
+            self.assertEqual(ingest.returncode, 0, ingest.stderr)
+
+            review = self.run_cli("review-patterns", "--project", "human-review", "--vault", str(vault))
+            self.assertEqual(review.returncode, 0, review.stderr)
+            review_path = Path(review.stdout.strip())
+            self.assertTrue(review_path.exists())
+            self.assertIn("Pattern Review", review_path.read_text(encoding="utf-8"))
+
+            pattern = "사용자는 승인된 패턴만 stable로 신뢰합니다."
+            promoted = self.run_cli(
+                "promote-pattern",
+                "--project",
+                "human-review",
+                "--vault",
+                str(vault),
+                "--pattern",
+                pattern,
+                "--status",
+                "stable",
+                "--note",
+                "manual approval",
+            )
+            self.assertEqual(promoted.returncode, 0, promoted.stderr)
+            registry = (vault / "human-review" / "_pattern_registry.md").read_text(encoding="utf-8")
+            self.assertIn("[stable] " + pattern, registry)
+            self.assertIn("human=stable", registry)
+
+    def test_semantic_search_finds_related_local_memory(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            source = tmp_path / "conversation.md"
+            source.write_text(SAMPLE, encoding="utf-8")
+            vault = tmp_path / "vault"
+            ingest = self.run_cli(
+                "ingest",
+                "--project",
+                "semantic-project",
+                "--input",
+                str(source),
+                "--vault",
+                str(vault),
+            )
+            self.assertEqual(ingest.returncode, 0, ingest.stderr)
+
+            result = self.run_cli(
+                "semantic-search",
+                "--project",
+                "semantic-project",
+                "--vault",
+                str(vault),
+                "--query",
+                "프로젝트를 이어가기 위한 기억",
+                "--min-score",
+                "0.01",
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("similarity=", result.stdout)
+
+    def test_export_share_excludes_raw_and_redacts_secret(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            secret = "sk-" + "proj-" + ("abcdefghijklmnopqrstuvwxyz" + "123456")
+            source = tmp_path / "conversation.md"
+            source.write_text(f"보스: 원본에는 {secret} 이 있지만 공유본에서는 숨깁니다.\n", encoding="utf-8")
+            vault = tmp_path / "vault"
+            ingest = self.run_cli(
+                "ingest",
+                "--project",
+                "share-project",
+                "--input",
+                str(source),
+                "--vault",
+                str(vault),
+            )
+            self.assertEqual(ingest.returncode, 0, ingest.stderr)
+            output = tmp_path / "share.zip"
+
+            exported = self.run_cli(
+                "export-share",
+                "--project",
+                "share-project",
+                "--vault",
+                str(vault),
+                "--output",
+                str(output),
+            )
+            self.assertEqual(exported.returncode, 0, exported.stderr)
+            with zipfile.ZipFile(output) as archive:
+                names = archive.namelist()
+                self.assertIn("SHARE_MANIFEST.md", names)
+                self.assertFalse(any(name.endswith("01_raw_conversation.md") for name in names))
+                for name in names:
+                    data = archive.read(name).decode("utf-8")
+                    self.assertNotIn(secret, data)
+
+    @unittest.skipUnless(MEMORY_MODULE.__dict__.get("seal_payload"), "seal helpers unavailable")
+    def test_seal_and_unseal_vault_roundtrip_when_crypto_is_available(self) -> None:
+        try:
+            import cryptography  # noqa: F401
+        except ImportError:
+            self.skipTest("cryptography is not installed")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            source = tmp_path / "conversation.md"
+            source.write_text(SAMPLE, encoding="utf-8")
+            vault = tmp_path / "vault"
+            ingest = self.run_cli(
+                "ingest",
+                "--project",
+                "sealed-project",
+                "--input",
+                str(source),
+                "--vault",
+                str(vault),
+            )
+            self.assertEqual(ingest.returncode, 0, ingest.stderr)
+            sealed = tmp_path / "memory.ppcm"
+            unsealed = tmp_path / "memory.zip"
+            env = {"PPCM_SEAL_PASSWORD": "correct horse battery staple"}
+
+            seal = self.run_cli(
+                "seal-vault",
+                "--project",
+                "sealed-project",
+                "--vault",
+                str(vault),
+                "--output",
+                str(sealed),
+                env=env,
+            )
+            self.assertEqual(seal.returncode, 0, seal.stderr)
+            self.assertTrue(sealed.read_bytes().startswith(b"PPCM-SEAL-v1\n"))
+
+            unseal = self.run_cli(
+                "unseal-vault",
+                "--input",
+                str(sealed),
+                "--output",
+                str(unsealed),
+                env=env,
+            )
+            self.assertEqual(unseal.returncode, 0, unseal.stderr)
+            with zipfile.ZipFile(unsealed) as archive:
+                self.assertIn("SHARE_MANIFEST.md", archive.namelist())
 
 
 if __name__ == "__main__":

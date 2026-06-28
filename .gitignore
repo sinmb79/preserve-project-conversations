@@ -6,8 +6,13 @@ __pycache__/
 .venv/
 venv/
 env/
+build/
+dist/
+*.egg-info/
+.coverage
 memory-vault/
 runs/
+*.ppcm
 *.tmp
 *.log
 .DS_Store
