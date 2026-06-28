@@ -28,6 +28,13 @@ SAMPLE = """보스: LLM과 개발 계획을 세우면 요약 과정에서 작은
 보스: 사용자의 개성과 개발 방식을 패턴화하고, 오류는 검증해서 숨기지 않아야 합니다.
 """
 
+DEVELOPMENT_SAMPLE = SAMPLE + """
+보스: 이 내용을 강의노트처럼 만들고 중요한 부분은 밑줄과 주석을 달아줘.
+줄리아: scripts/paideia_memory.py에 make-notes 명령을 추가하고 tests/test_paideia_memory.py로 검증하겠습니다.
+줄리아: python -B -m unittest discover -s tests -v 를 실행해서 결과를 확인하겠습니다.
+보스: 서재에서 제목, 날짜, 키워드로 검색하고 전자책과 블로그 글, 트윗으로도 만들 수 있어야 합니다.
+"""
+
 
 class PaideiaMemoryCliTests(unittest.TestCase):
     def run_cli(
@@ -122,6 +129,127 @@ class PaideiaMemoryCliTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("04_summary.md", result.stdout)
             self.assertIn("_pattern_registry.md", result.stdout)
+
+    def test_make_notes_creates_lecture_and_development_notes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            source = tmp_path / "conversation.md"
+            source.write_text(DEVELOPMENT_SAMPLE, encoding="utf-8")
+            vault = tmp_path / "vault"
+            ingest = self.run_cli(
+                "ingest",
+                "--project",
+                "lecture-library",
+                "--input",
+                str(source),
+                "--vault",
+                str(vault),
+            )
+            self.assertEqual(ingest.returncode, 0, ingest.stderr)
+
+            notes = self.run_cli(
+                "make-notes",
+                "--project",
+                "lecture-library",
+                "--vault",
+                str(vault),
+            )
+
+            self.assertEqual(notes.returncode, 0, notes.stderr)
+            session = Path(ingest.stdout.strip())
+            lecture = (session / "06_lecture_notes.md").read_text(encoding="utf-8")
+            development = (session / "07_development_notes.md").read_text(encoding="utf-8")
+            self.assertIn("Five-Layer Study Map", lecture)
+            for name in [
+                "01_raw_conversation.md",
+                "02_major_outline.md",
+                "03_minor_outline.md",
+                "04_summary.md",
+                "05_patterns.md",
+            ]:
+                self.assertIn(name, lecture)
+            self.assertIn("<u>", lecture)
+            self.assertIn("Footnotes", lecture)
+            self.assertIn("Quoted Source Phrases", lecture)
+            self.assertIn("Source: `01_raw_conversation.md`", lecture)
+            self.assertIn("scripts/paideia_memory.py", development)
+            self.assertIn("Verification", development)
+
+            search = self.run_cli(
+                "search",
+                "--project",
+                "lecture-library",
+                "--vault",
+                str(vault),
+                "--query",
+                "강의노트 주석",
+            )
+            self.assertEqual(search.returncode, 0, search.stderr)
+            self.assertIn("06_lecture_notes.md", search.stdout)
+
+    def test_library_index_search_book_and_post_exports(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            source = tmp_path / "conversation.md"
+            source.write_text(DEVELOPMENT_SAMPLE, encoding="utf-8")
+            vault = tmp_path / "vault"
+            ingest = self.run_cli(
+                "ingest",
+                "--project",
+                "library-project",
+                "--input",
+                str(source),
+                "--vault",
+                str(vault),
+            )
+            self.assertEqual(ingest.returncode, 0, ingest.stderr)
+
+            index = self.run_cli("library-index", "--vault", str(vault))
+            self.assertEqual(index.returncode, 0, index.stderr)
+            library_index = vault / "_library" / "index.md"
+            catalog = vault / "_library" / "catalog.json"
+            self.assertTrue(library_index.exists())
+            self.assertTrue(catalog.exists())
+            self.assertIn("By Keyword", library_index.read_text(encoding="utf-8"))
+
+            listed = self.run_cli("library-list", "--vault", str(vault), "--keyword", "강의", "--limit", "5")
+            self.assertEqual(listed.returncode, 0, listed.stderr)
+            self.assertIn("library-project", listed.stdout)
+
+            found = self.run_cli("library-search", "--vault", str(vault), "--query", "전자책 블로그 트윗")
+            self.assertEqual(found.returncode, 0, found.stderr)
+            self.assertIn("library-project", found.stdout)
+
+            book = tmp_path / "book.md"
+            exported_book = self.run_cli(
+                "export-book",
+                "--project",
+                "library-project",
+                "--vault",
+                str(vault),
+                "--output",
+                str(book),
+                "--include-development",
+            )
+            self.assertEqual(exported_book.returncode, 0, exported_book.stderr)
+            book_text = book.read_text(encoding="utf-8")
+            self.assertIn("Lecture Notes", book_text)
+            self.assertIn("Development Notes", book_text)
+
+            post = tmp_path / "post.md"
+            exported_post = self.run_cli(
+                "export-post",
+                "--project",
+                "library-project",
+                "--vault",
+                str(vault),
+                "--format",
+                "tweet",
+                "--output",
+                str(post),
+            )
+            self.assertEqual(exported_post.returncode, 0, exported_post.stderr)
+            self.assertIn("1/ library-project", post.read_text(encoding="utf-8"))
 
     def test_fail_on_secret_blocks_ingest_without_partial_session(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

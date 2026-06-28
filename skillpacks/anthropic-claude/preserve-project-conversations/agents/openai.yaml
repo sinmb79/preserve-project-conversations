@@ -1,0 +1,4 @@
+interface:
+  display_name: "Preserve Project Conversations"
+  short_description: "Turn LLM project chats into five-layer lecture memory."
+  default_prompt: "Use -project-conversations to turn this conversation into five-layer lecture notes and a searchable project library."

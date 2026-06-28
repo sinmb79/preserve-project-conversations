@@ -2,6 +2,22 @@
 
 All notable changes to Preserve Project Conversations are documented here.
 
+## v0.3.0 - 2026-06-28
+
+### Added
+
+- Five-layer lecture note view with underlined key phrases, footnotes, quoted source phrases, and review questions.
+- Development notes that summarize coding sessions as Planning -> Implementation -> Verification -> Release -> Patterns.
+- Searchable library generation with `_library/index.md` and `_library/catalog.json`.
+- Library listing and search commands for title, date, keyword, project, and summary lookup.
+- Ebook-style Markdown export.
+- Blog post and long tweet/thread draft export.
+- Skillpacks for Claude/Anthropic-style `SKILL.md` agents, OpenClaw/Hermes-style agents, and ChatGPT GPT instructions/knowledge.
+
+### Changed
+
+- Clarified that lecture notes are a study view over the existing five-layer contract, not a replacement for the raw/outline/summary/pattern files.
+
 ## v0.2.1 - 2026-06-28
 
 ### Changed

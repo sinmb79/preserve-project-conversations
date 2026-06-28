@@ -41,6 +41,9 @@ jobs:
       - name: Check distributions
         run: python -m twine check dist/*
 
+      - name: Check wheel assets
+        run: python -B scripts/check_wheel_assets.py dist
+
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:

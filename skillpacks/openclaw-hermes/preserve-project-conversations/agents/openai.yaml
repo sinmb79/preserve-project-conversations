@@ -1,0 +1,4 @@
+interface:
+  display_name: "Preserve Project Conversations"
+  short_description: "Create five-layer agent memory and study notes."
+  default_prompt: "Use $preserve-project-conversations to preserve this agent session as five-layer memory and lecture notes."

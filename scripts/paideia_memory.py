@@ -38,6 +38,10 @@ CORE_FILE_NAMES = [
     "04_summary.md",
     "05_patterns.md",
 ]
+NOTE_FILE_NAMES = [
+    "06_lecture_notes.md",
+    "07_development_notes.md",
+]
 PROJECT_INDEX_FILES = {
     "_project_index.md",
     "_timeline.md",
@@ -46,6 +50,7 @@ PROJECT_INDEX_FILES = {
 }
 PATTERN_OVERRIDES_FILE = "_pattern_overrides.json"
 PATTERN_REVIEW_FILE = "_pattern_review.md"
+LIBRARY_DIR_NAME = "_library"
 SCAN_TARGET_SUFFIXES = {
     ".cfg",
     ".ini",
@@ -222,6 +227,19 @@ class SecretFinding:
     kind: str
     line_number: int
     excerpt: str
+
+
+@dataclass
+class LibraryEntry:
+    project: str
+    session_id: str
+    title: str
+    date: str
+    keywords: list[str]
+    summary: str
+    session_path: Path
+    lecture_notes: Path | None
+    development_notes: Path | None
 
 
 def now_utc() -> str:
@@ -1052,7 +1070,7 @@ def iter_memory_files(vault: Path, project: str | None = None) -> Iterable[Path]
     return sorted(
         path
         for path in root.rglob("*.md")
-        if path.name.startswith(("01_", "02_", "03_", "04_", "05_")) or path.name in PROJECT_INDEX_FILES
+        if path.name.startswith(("01_", "02_", "03_", "04_", "05_", "06_", "07_")) or path.name in PROJECT_INDEX_FILES
     )
 
 
@@ -1074,6 +1092,8 @@ def memory_file_priority(name: str) -> int:
         "_timeline.md": 5,
         "05_patterns.md": 5,
         "04_summary.md": 4,
+        "06_lecture_notes.md": 4,
+        "07_development_notes.md": 4,
         "03_minor_outline.md": 3,
         "02_major_outline.md": 2,
         "01_raw_conversation.md": 1,
@@ -1213,7 +1233,7 @@ def iter_share_files(project_root: Path, include_raw: bool) -> list[Path]:
         if path.name in allowed_project_files:
             files.append(path)
             continue
-        if path.name in CORE_FILE_NAMES:
+        if path.name in CORE_FILE_NAMES or path.name in NOTE_FILE_NAMES:
             if path.name == "01_raw_conversation.md" and not include_raw:
                 continue
             files.append(path)
@@ -1420,10 +1440,700 @@ def best_snippet(text: str, tokens: set[str]) -> str:
 
 
 def latest_session(project_root: Path) -> Path | None:
-    if not project_root.exists():
-        return None
-    sessions = [path for path in project_root.iterdir() if path.is_dir() and not path.name.endswith(".tmp")]
+    sessions = list_sessions(project_root)
     return sorted(sessions)[-1] if sessions else None
+
+
+def resolve_session(project_root: Path, session_id: str) -> Path:
+    if session_id == "latest":
+        session = latest_session(project_root)
+        if not session:
+            raise SystemExit(f"No memory sessions found in: {project_root}")
+        return session
+    session = project_root / session_id
+    if not session.exists() or not all((session / name).exists() for name in CORE_FILE_NAMES):
+        raise SystemExit(f"Session not found or incomplete: {session_id}")
+    return session
+
+
+def short_text(text: str, limit: int = 180) -> str:
+    compact = re.sub(r"\s+", " ", redact_secrets(text)).strip()
+    if len(compact) <= limit:
+        return compact
+    return compact[: limit - 3].rstrip() + "..."
+
+
+def source_ref(message: Message) -> str:
+    location = f"M{message.index}"
+    if message.line_start:
+        location += f", L{message.line_start}-L{message.line_end}"
+    return location
+
+
+def evidence_ref(item: Evidence) -> str:
+    location = f"M{item.message_index}"
+    if item.line_start:
+        location += f", L{item.line_start}-L{item.line_end}"
+    return location
+
+
+def load_session_messages(session: Path) -> list[Message]:
+    raw_path = session / "01_raw_conversation.md"
+    raw = read_text(raw_path)
+    return parse_messages(raw_path, raw)
+
+
+def session_date(session: Path) -> str:
+    match = re.match(r"(\d{4})(\d{2})(\d{2})T", session.name)
+    if not match:
+        return "unknown-date"
+    return f"{match.group(1)}-{match.group(2)}-{match.group(3)}"
+
+
+def extract_keywords(*texts: str, limit: int = 10) -> list[str]:
+    important_terms = {
+        "llm",
+        "원본",
+        "대제목",
+        "소제목",
+        "요약",
+        "패턴",
+        "검증",
+        "서재",
+        "도서관",
+        "전자책",
+        "블로그",
+        "트윗",
+        "강의노트",
+        "개발노트",
+        "출처",
+        "인용",
+    }
+    stopwords = {
+        "the",
+        "and",
+        "for",
+        "with",
+        "this",
+        "that",
+        "user",
+        "assistant",
+        "score",
+        "role",
+        "raw",
+        "lines",
+        "line",
+        "source",
+        "file",
+        "study",
+        "detail",
+        "evidence",
+        "why",
+        "keep",
+        "it",
+        "from",
+        "generated",
+        "project",
+        "session",
+        "사용자",
+        "프로젝트",
+        "내용",
+        "대화",
+        "있습니다",
+        "합니다",
+        "있는",
+        "것을",
+        "것은",
+        "합니다",
+        "있습니다",
+        "됩니다",
+        "입니다",
+        "니다",
+        "합니",
+        "으로",
+        "에서",
+        "에게",
+    }
+    counts: Counter[str] = Counter()
+    for text in texts:
+        for match in TOKEN_RE.finditer(normalize_for_match(text)):
+            token = match.group(0).strip("`'\".,:;!?()[]{}")
+            if len(token) < 2 or token in stopwords:
+                continue
+            if re.fullmatch(r"[가-힣]{2,}", token) and len(token) < 3 and token not in important_terms:
+                continue
+            counts[token] += 3 if token in important_terms else 1
+    return [token for token, _ in counts.most_common(limit)]
+
+
+def annotation_text(term: str) -> str:
+    predefined = {
+        "원본": "가장 마지막에 확인해야 할 사실 근거입니다. 요약보다 우선합니다.",
+        "대제목": "대화 전체를 큰 구조로 나눈 상위 목차입니다.",
+        "소제목": "사용자의 세부 요구와 작은 차이를 잃지 않기 위한 하위 목차입니다.",
+        "요약": "다음 세션이 빠르게 맥락을 복원하기 위한 압축 설명입니다.",
+        "패턴": "반복된 선호와 작업 방식을 다음 작업에 적용하기 위한 운영 기억입니다.",
+        "검증": "결과를 주장하기 전에 테스트, 스캔, 빌드 등으로 확인하는 절차입니다.",
+        "서재": "프로젝트별 노트와 산출물을 제목, 날짜, 키워드로 다시 찾는 색인입니다.",
+        "출처": "강의노트의 문장이 어떤 원문 메시지에서 왔는지 되짚는 연결점입니다.",
+        "전자책": "여러 세션의 노트를 하나의 긴 학습 문서로 묶은 결과물입니다.",
+    }
+    return predefined.get(term, "이 세션에서 반복되거나 의사결정에 영향을 준 핵심어입니다.")
+
+
+def underline_and_annotate(text: str, keywords: list[str], footnotes: dict[str, str]) -> str:
+    sentence = short_text(text, 240)
+    used_terms: list[str] = []
+    for term in keywords:
+        if term and term in sentence and term not in used_terms:
+            sentence = sentence.replace(term, f"<u>{term}</u>", 1)
+            used_terms.append(term)
+            break
+    for term in keywords[:2]:
+        if term and term in text and term not in footnotes:
+            footnotes[term] = annotation_text(term)
+    markers = "".join(f"[^{slugify(term)}]" for term in keywords[:2] if term in footnotes)
+    return sentence + markers
+
+
+def top_evidence_items(evidence: dict[str, list[Evidence]], limit: int = 14) -> list[tuple[str, str, Evidence]]:
+    items: list[tuple[str, str, Evidence]] = []
+    title_by_key = {key: title for key, title, _ in CATEGORY_DEFS}
+    for key, _, _ in CATEGORY_DEFS:
+        for item in evidence.get(key, [])[:3]:
+            items.append((key, title_by_key[key], item))
+    items.sort(key=lambda value: (-value[2].score, value[2].message_index))
+    return items[:limit]
+
+
+def render_lecture_notes(project: str, session: Path) -> str:
+    messages = load_session_messages(session)
+    evidence = collect_evidence(messages)
+    major_outline = read_text(session / "02_major_outline.md")
+    minor_outline = read_text(session / "03_minor_outline.md")
+    summary = read_text(session / "04_summary.md")
+    patterns = read_text(session / "05_patterns.md")
+    keywords = extract_keywords(major_outline, minor_outline, summary, patterns, *(message.content for message in messages), limit=12)
+    footnotes: dict[str, str] = {}
+    one_line = extract_section(summary, "One-paragraph context", max_lines=1) or short_text(summary, 120)
+
+    lines = [
+        "# 06 Lecture Notes",
+        "",
+        f"- Project: {project}",
+        f"- Session: {session.name}",
+        f"- Date: {session_date(session)}",
+        f"- Generated at: {now_utc()}",
+        f"- Keywords: {', '.join(keywords) if keywords else 'none'}",
+        "",
+        "이 파일은 새로운 기억 계층이 아니라, 기존 5계층을 강의노트처럼 다시 읽기 위한 학습용 뷰입니다.",
+        "",
+        "## Five-Layer Study Map",
+        "",
+        "### 1. Raw Conversation",
+        "- Source file: `01_raw_conversation.md`",
+        "- Study role: exact evidence and quoted wording.",
+        f"- Key quote: \"{short_text(messages[0].content if messages else '', 180)}\"",
+        "",
+        "### 2. Major Outline",
+        "- Source file: `02_major_outline.md`",
+        "- Study role: lecture chapter headings.",
+        extract_section(major_outline, "프로젝트의 북극성", max_lines=4) or "- No major outline excerpt available.",
+        "",
+        "### 3. Minor Outline",
+        "- Source file: `03_minor_outline.md`",
+        "- Study role: details, caveats, and requirements likely to be lost by ordinary summaries.",
+        extract_section(minor_outline, "작은 차이를 보존해야 하는 이유", max_lines=6) or extract_section(minor_outline, "명시 요구사항", max_lines=6) or "- No minor outline excerpt available.",
+        "",
+        "### 4. Summary",
+        "- Source file: `04_summary.md`",
+        "- Study role: fast review before continuing the project.",
+        underline_and_annotate(one_line, keywords, footnotes),
+        "",
+        "### 5. Patterns",
+        "- Source file: `05_patterns.md`",
+        "- Study role: user/project working style that should guide future sessions.",
+        extract_section(patterns, "Session User Patterns", max_lines=6) or "- No pattern excerpt available.",
+        "",
+        "## Lecture Thesis",
+        "",
+        underline_and_annotate(one_line, keywords, footnotes),
+        "",
+        "## Learning Objectives",
+        "",
+    ]
+    objective_count = 0
+    for key, title, _ in CATEGORY_DEFS:
+        if evidence.get(key):
+            objective_count += 1
+            lines.append(f"- Understand `{title}` and trace it back to the raw conversation.")
+    if not objective_count:
+        lines.append("- Understand the session's main idea and verify it against the raw conversation.")
+
+    lines.extend(["", "## Annotated Key Notes", ""])
+    for _, title, item in top_evidence_items(evidence):
+        local_keywords = extract_keywords(item.text, title, limit=4) or keywords[:4]
+        lines.append(f"### {title}")
+        lines.append(f"- Note: {underline_and_annotate(item.text, local_keywords, footnotes)}")
+        lines.append(f"- Source: `01_raw_conversation.md` ({evidence_ref(item)})")
+        lines.append(f"- Why it matters: {explain_retention_reason(_)}")
+        lines.append("")
+
+    lines.extend(["## Quoted Source Phrases", ""])
+    quoted = False
+    for _, _, item in top_evidence_items(evidence, limit=8):
+        quoted = True
+        lines.append(f"- `{evidence_ref(item)}`: \"{short_text(item.text, 160)}\"")
+    if not quoted:
+        for message in messages[:5]:
+            lines.append(f"- `{source_ref(message)}`: \"{short_text(message.content, 160)}\"")
+
+    lines.extend(
+        [
+            "",
+            "## Review Questions",
+            "",
+            "- What requirement would be most harmful if it disappeared from an ordinary summary?",
+            "- Which pattern should be treated as durable only after human review?",
+            "- Which source quote should be checked before implementing the next change?",
+            "",
+            "## Footnotes",
+            "",
+        ]
+    )
+    if footnotes:
+        for term, note in sorted(footnotes.items(), key=lambda item: slugify(item[0])):
+            lines.append(f"[^{slugify(term)}]: {note}")
+    else:
+        lines.append("[^note]: No repeated keyword required a separate annotation.")
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def detect_development_sentences(messages: list[Message]) -> list[tuple[Message, str]]:
+    dev_markers = [
+        "코딩",
+        "개발",
+        "구현",
+        "수정",
+        "테스트",
+        "검증",
+        "커밋",
+        "릴리스",
+        "배포",
+        "빌드",
+        "서재",
+        "전자책",
+        "블로그",
+        "트윗",
+        "파일",
+        "함수",
+        "명령",
+        "python",
+        "git",
+        "pytest",
+        "unittest",
+        "workflow",
+        "release",
+        "commit",
+        "test",
+        "build",
+    ]
+    path_re = re.compile(r"[\w가-힣./\\-]+\.(?:py|md|toml|yml|yaml|json|jsonl|txt|ps1|sh|ts|tsx|js|jsx|css|html)")
+    records: list[tuple[Message, str]] = []
+    for message in messages:
+        for sentence in split_sentences(message.content):
+            lowered = normalize_for_match(sentence)
+            if "```" in message.content or path_re.search(sentence) or any(marker in lowered for marker in dev_markers):
+                records.append((message, sentence))
+    return records
+
+
+def classify_development_step(sentence: str) -> str:
+    lowered = normalize_for_match(sentence)
+    if any(marker in lowered for marker in ["리서치", "조사", "계획", "설계", "요구"]):
+        return "Planning"
+    if any(marker in lowered for marker in ["구현", "수정", "추가", "파일", "함수", "코드"]):
+        return "Implementation"
+    if any(marker in lowered for marker in ["테스트", "검증", "스캔", "doctor", "twine", "build"]):
+        return "Verification"
+    if any(marker in lowered for marker in ["커밋", "푸시", "릴리스", "배포", "github", "pypi"]):
+        return "Release"
+    return "Notes"
+
+
+def extract_paths(text: str) -> list[str]:
+    path_re = re.compile(r"[\w가-힣./\\-]+\.(?:py|md|toml|yml|yaml|json|jsonl|txt|ps1|sh|ts|tsx|js|jsx|css|html)")
+    return sorted(set(match.group(0).strip("`'\"") for match in path_re.finditer(text)))
+
+
+def render_development_notes(project: str, session: Path) -> str:
+    messages = load_session_messages(session)
+    evidence = collect_evidence(messages)
+    records = detect_development_sentences(messages)
+    grouped: dict[str, list[tuple[Message, str]]] = {key: [] for key in ["Planning", "Implementation", "Verification", "Release", "Notes"]}
+    for message, sentence in records:
+        grouped[classify_development_step(sentence)].append((message, sentence))
+    all_text = "\n".join(sentence for _, sentence in records)
+    paths = extract_paths(all_text)
+    stable_patterns = section_bullets(read_text(session / "05_patterns.md"), "Session User Patterns")
+
+    lines = [
+        "# 07 Development Notes",
+        "",
+        f"- Project: {project}",
+        f"- Session: {session.name}",
+        f"- Date: {session_date(session)}",
+        f"- Generated at: {now_utc()}",
+        "",
+        "## Major Flow",
+        "",
+        "- Planning: why the work exists and what must not be lost.",
+        "- Implementation: which files, commands, or structures changed.",
+        "- Verification: how the result was checked.",
+        "- Release: how the work was packaged or shared.",
+        "",
+        "## Minor Steps",
+        "",
+    ]
+    for heading in ["Planning", "Implementation", "Verification", "Release", "Notes"]:
+        lines.append(f"### {heading}")
+        items = grouped[heading][:8]
+        if not items:
+            lines.append("- No explicit signal captured in this session.")
+        else:
+            for message, sentence in items:
+                lines.append(f"- ({source_ref(message)}) {short_text(sentence, 220)}")
+        lines.append("")
+
+    lines.extend(["## Referenced Files and Artifacts", ""])
+    if paths:
+        lines.extend(f"- `{path}`" for path in paths[:30])
+    else:
+        lines.append("- No concrete file path was detected in the raw conversation.")
+
+    lines.extend(["", "## Patterns for Future Coding Sessions", ""])
+    if stable_patterns:
+        lines.extend(f"- {pattern}" for pattern in stable_patterns[:8])
+    else:
+        for key in ["requirements", "verification", "small_details"]:
+            for item in evidence.get(key, [])[:3]:
+                lines.append(f"- {short_text(item.text, 180)}")
+    lines.extend(
+        [
+            "",
+            "## Raw Traceback Map",
+            "",
+            "- Start from this file for the development story.",
+            "- Open `04_summary.md` for compact project context.",
+            "- Open `03_minor_outline.md` for implementation-sensitive details.",
+            "- Open `01_raw_conversation.md` at the cited message/line when exact wording matters.",
+        ]
+    )
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def notes_command(args: argparse.Namespace) -> int:
+    vault = Path(args.vault).resolve()
+    project_root = vault / slugify(args.project)
+    if not list_sessions(project_root):
+        raise SystemExit(f"No complete sessions found for project: {args.project}")
+    session = resolve_session(project_root, args.session)
+    output_dir = Path(args.output_dir).resolve() if args.output_dir else session
+    lecture_path = output_dir / "06_lecture_notes.md"
+    development_path = output_dir / "07_development_notes.md"
+    write_text(lecture_path, render_lecture_notes(args.project, session))
+    write_text(development_path, render_development_notes(args.project, session))
+    rebuild_project_indexes(project_root, args.project)
+    print(lecture_path)
+    print(development_path)
+    return 0
+
+
+def detect_project_name(project_root: Path) -> str:
+    index_path = project_root / "_project_index.md"
+    if index_path.exists():
+        for line in read_text(index_path).splitlines():
+            if line.startswith("- Project: "):
+                return line.split(": ", 1)[1].strip()
+    return project_root.name
+
+
+def build_library_entries(vault: Path, project: str | None, generate_notes: bool) -> list[LibraryEntry]:
+    roots: list[Path]
+    if project:
+        roots = [vault / slugify(project)]
+    else:
+        roots = sorted(path for path in vault.iterdir() if path.is_dir() and path.name != LIBRARY_DIR_NAME) if vault.exists() else []
+    entries: list[LibraryEntry] = []
+    for project_root in roots:
+        project_name = project or detect_project_name(project_root)
+        for session in list_sessions(project_root):
+            if generate_notes:
+                write_text(session / "06_lecture_notes.md", render_lecture_notes(project_name, session))
+                write_text(session / "07_development_notes.md", render_development_notes(project_name, session))
+            summary = read_text(session / "04_summary.md")
+            patterns = read_text(session / "05_patterns.md")
+            lecture_path = session / "06_lecture_notes.md"
+            development_path = session / "07_development_notes.md"
+            lecture_text = read_text(lecture_path) if lecture_path.exists() else ""
+            development_text = read_text(development_path) if development_path.exists() else ""
+            title = extract_section(summary, "One-paragraph context", max_lines=1) or session.name
+            keywords = extract_keywords(summary, patterns, lecture_text, development_text, limit=8)
+            catalog_summary = "\n".join(
+                part
+                for part in [
+                    title,
+                    extract_section(summary, "Non-negotiables", max_lines=6),
+                    extract_section(lecture_text, "Learning Objectives", max_lines=8),
+                    extract_section(development_text, "Major Flow", max_lines=8),
+                    extract_section(development_text, "Minor Steps", max_lines=12),
+                ]
+                if part
+            )
+            entries.append(
+                LibraryEntry(
+                    project=project_name,
+                    session_id=session.name,
+                    title=short_text(title, 96),
+                    date=session_date(session),
+                    keywords=keywords,
+                    summary=short_text(catalog_summary, 800),
+                    session_path=session,
+                    lecture_notes=lecture_path if lecture_path.exists() else None,
+                    development_notes=development_path if development_path.exists() else None,
+                )
+            )
+    entries.sort(key=lambda entry: (entry.date, entry.project, entry.session_id), reverse=True)
+    return entries
+
+
+def library_entry_dict(entry: LibraryEntry, vault: Path) -> dict[str, Any]:
+    def rel(path: Path | None) -> str | None:
+        if not path:
+            return None
+        try:
+            return path.relative_to(vault).as_posix()
+        except ValueError:
+            return path.as_posix()
+
+    return {
+        "project": entry.project,
+        "session_id": entry.session_id,
+        "title": entry.title,
+        "date": entry.date,
+        "keywords": entry.keywords,
+        "summary": entry.summary,
+        "session_path": rel(entry.session_path),
+        "lecture_notes": rel(entry.lecture_notes),
+        "development_notes": rel(entry.development_notes),
+    }
+
+
+def render_library_index(entries: list[LibraryEntry], vault: Path) -> str:
+    lines = [
+        "# Memory Library",
+        "",
+        f"- Generated at: {now_utc()}",
+        f"- Entries: {len(entries)}",
+        "",
+        "## By Date",
+        "",
+    ]
+    if not entries:
+        lines.append("- No sessions found.")
+    for entry in entries:
+        lines.append(
+            f"- {entry.date} | **{entry.project}** | {entry.title} "
+            f"(`{entry.session_path.relative_to(vault).as_posix()}`)"
+        )
+
+    lines.extend(["", "## By Project", ""])
+    for project_name in sorted({entry.project for entry in entries}):
+        lines.append(f"### {project_name}")
+        for entry in [item for item in entries if item.project == project_name]:
+            lines.append(f"- {entry.date} | {entry.title} | keywords: {', '.join(entry.keywords[:5])}")
+        lines.append("")
+
+    keyword_map: dict[str, list[LibraryEntry]] = {}
+    for entry in entries:
+        for keyword in entry.keywords:
+            keyword_map.setdefault(keyword, []).append(entry)
+    lines.extend(["## By Keyword", ""])
+    for keyword in sorted(keyword_map)[:80]:
+        labels = ", ".join(f"{entry.project}/{entry.session_id}" for entry in keyword_map[keyword][:5])
+        lines.append(f"- `{keyword}`: {labels}")
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def library_index_command(args: argparse.Namespace) -> int:
+    vault = Path(args.vault).resolve()
+    entries = build_library_entries(vault, args.project, args.generate_notes)
+    library_root = vault / LIBRARY_DIR_NAME
+    write_text(library_root / "index.md", render_library_index(entries, vault))
+    write_text(
+        library_root / "catalog.json",
+        json.dumps([library_entry_dict(entry, vault) for entry in entries], ensure_ascii=False, indent=2) + "\n",
+    )
+    print(library_root / "index.md")
+    print(library_root / "catalog.json")
+    return 0
+
+
+def load_library_catalog(vault: Path) -> list[dict[str, Any]]:
+    catalog_path = vault / LIBRARY_DIR_NAME / "catalog.json"
+    if not catalog_path.exists():
+        entries = build_library_entries(vault, None, generate_notes=False)
+        return [library_entry_dict(entry, vault) for entry in entries]
+    try:
+        data = json.loads(read_text(catalog_path))
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"Invalid library catalog: {catalog_path}: {exc}") from exc
+    if not isinstance(data, list):
+        raise SystemExit(f"Invalid library catalog: {catalog_path}: expected a list")
+    return [item for item in data if isinstance(item, dict)]
+
+
+def library_list_command(args: argparse.Namespace) -> int:
+    vault = Path(args.vault).resolve()
+    catalog = load_library_catalog(vault)
+    if args.sort == "title":
+        catalog.sort(key=lambda item: str(item.get("title", "")))
+    elif args.sort == "project":
+        catalog.sort(key=lambda item: (str(item.get("project", "")), str(item.get("date", ""))), reverse=True)
+    else:
+        catalog.sort(key=lambda item: str(item.get("date", "")), reverse=True)
+    if args.keyword:
+        normalized = normalize_for_match(args.keyword)
+        catalog = [
+            item
+            for item in catalog
+            if normalized
+            in normalize_for_match(
+                " ".join(
+                    [
+                        str(item.get("project", "")),
+                        str(item.get("title", "")),
+                        str(item.get("summary", "")),
+                        " ".join(str(keyword) for keyword in item.get("keywords", [])),
+                    ]
+                )
+            )
+        ]
+    for item in catalog[: args.limit]:
+        keywords = ", ".join(str(keyword) for keyword in item.get("keywords", [])[:5])
+        print(f"{item.get('date')} | {item.get('project')} | {item.get('title')} | {keywords}")
+    return 0 if catalog else 1
+
+
+def library_search_command(args: argparse.Namespace) -> int:
+    vault = Path(args.vault).resolve()
+    query_tokens = set(tokenize(args.query))
+    if not query_tokens:
+        raise SystemExit("Query must contain at least one searchable token.")
+    results: list[tuple[int, dict[str, Any]]] = []
+    for item in load_library_catalog(vault):
+        haystack = " ".join(
+            [
+                str(item.get("project", "")),
+                str(item.get("title", "")),
+                str(item.get("summary", "")),
+                " ".join(str(keyword) for keyword in item.get("keywords", [])),
+                str(item.get("date", "")),
+            ]
+        )
+        score = score_text(haystack, args.query, query_tokens, priority=0)
+        if score > 0:
+            results.append((score, item))
+    results.sort(key=lambda pair: (-pair[0], str(pair[1].get("date", ""))), reverse=False)
+    for score, item in results[: args.limit]:
+        print(f"[score={score}] {item.get('date')} | {item.get('project')} | {item.get('title')}")
+        print(f"- keywords: {', '.join(str(keyword) for keyword in item.get('keywords', [])[:8])}")
+        print(f"- notes: {item.get('lecture_notes') or item.get('session_path')}")
+        print()
+    return 0 if results else 1
+
+
+def export_book_command(args: argparse.Namespace) -> int:
+    vault = Path(args.vault).resolve()
+    project_root = vault / slugify(args.project)
+    if not list_sessions(project_root):
+        raise SystemExit(f"No complete sessions found for project: {args.project}")
+    entries = build_library_entries(vault, args.project, generate_notes=True)
+    lines = [
+        f"# {args.title or args.project}",
+        "",
+        f"- Generated at: {now_utc()}",
+        f"- Project: {args.project}",
+        f"- Sessions: {len(entries)}",
+        "",
+        "## Table of Contents",
+        "",
+    ]
+    for index, entry in enumerate(entries, start=1):
+        lines.append(f"{index}. {entry.date} - {entry.title}")
+    for entry in entries:
+        lines.extend(["", "---", "", f"## {entry.date} - {entry.title}", ""])
+        if entry.lecture_notes and entry.lecture_notes.exists():
+            lines.append(read_text(entry.lecture_notes))
+        if args.include_development and entry.development_notes and entry.development_notes.exists():
+            lines.extend(["", read_text(entry.development_notes)])
+    output = Path(args.output).resolve()
+    write_text(output, "\n".join(lines).rstrip() + "\n")
+    print(output)
+    return 0
+
+
+def export_post_command(args: argparse.Namespace) -> int:
+    vault = Path(args.vault).resolve()
+    project_root = vault / slugify(args.project)
+    if not list_sessions(project_root):
+        raise SystemExit(f"No complete sessions found for project: {args.project}")
+    session = resolve_session(project_root, args.session)
+    if not (session / "06_lecture_notes.md").exists() or not (session / "07_development_notes.md").exists():
+        write_text(session / "06_lecture_notes.md", render_lecture_notes(args.project, session))
+        write_text(session / "07_development_notes.md", render_development_notes(args.project, session))
+    summary = extract_section(read_text(session / "04_summary.md"), "One-paragraph context", max_lines=2)
+    lecture = read_text(session / "06_lecture_notes.md")
+    development = read_text(session / "07_development_notes.md")
+    if args.format == "tweet":
+        bullets = section_bullets(lecture, "Learning Objectives")[:4]
+        lines = [
+            f"1/ {args.project}: {short_text(summary, 220)}",
+            "",
+            "2/ 핵심 학습 포인트:",
+        ]
+        lines.extend(f"- {short_text(item, 180)}" for item in bullets)
+        lines.extend(
+            [
+                "",
+                "3/ 개발/검증 기록:",
+                short_text(extract_section(development, "Major Flow", max_lines=8), 260),
+                "",
+                "4/ 전체 노트와 원문 출처는 로컬 memory vault에서 확인할 수 있습니다.",
+            ]
+        )
+    else:
+        lines = [
+            f"# {args.project}: Lecture Note Digest",
+            "",
+            summary,
+            "",
+            "## What changed",
+            "",
+            extract_section(development, "Major Flow", max_lines=10),
+            "",
+            "## Study notes",
+            "",
+            extract_section(lecture, "Annotated Key Notes", max_lines=20),
+            "",
+            "## Sources",
+            "",
+            extract_section(lecture, "Quoted Source Phrases", max_lines=10),
+        ]
+    output = Path(args.output).resolve()
+    write_text(output, "\n".join(line for line in lines if line is not None).rstrip() + "\n")
+    print(output)
+    return 0
 
 
 def context(args: argparse.Namespace) -> int:
@@ -1542,6 +2252,53 @@ def build_parser() -> argparse.ArgumentParser:
     index_parser.add_argument("--vault", default="memory-vault", help="Memory vault directory.")
     index_parser.add_argument("--project", required=True, help="Project name.")
     index_parser.set_defaults(func=rebuild_index_command)
+
+    notes_parser = subparsers.add_parser("make-notes", help="Create lecture notes and development notes for a session.")
+    notes_parser.add_argument("--vault", default="memory-vault", help="Memory vault directory.")
+    notes_parser.add_argument("--project", required=True, help="Project name.")
+    notes_parser.add_argument("--session", default="latest", help="Session id, or latest.")
+    notes_parser.add_argument("--output-dir", help="Optional output directory. Defaults to the selected session folder.")
+    notes_parser.set_defaults(func=notes_command)
+
+    library_index_parser = subparsers.add_parser("library-index", help="Build a searchable library index for all projects or one project.")
+    library_index_parser.add_argument("--vault", default="memory-vault", help="Memory vault directory.")
+    library_index_parser.add_argument("--project", help="Optional project name to restrict indexing.")
+    library_index_parser.add_argument(
+        "--generate-notes",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Generate missing lecture/development notes while indexing.",
+    )
+    library_index_parser.set_defaults(func=library_index_command)
+
+    library_list_parser = subparsers.add_parser("library-list", help="List library entries by date, title, project, or keyword.")
+    library_list_parser.add_argument("--vault", default="memory-vault", help="Memory vault directory.")
+    library_list_parser.add_argument("--sort", choices=["date", "title", "project"], default="date", help="List sort order.")
+    library_list_parser.add_argument("--keyword", help="Optional keyword filter.")
+    library_list_parser.add_argument("--limit", type=int, default=20, help="Maximum number of entries.")
+    library_list_parser.set_defaults(func=library_list_command)
+
+    library_search_parser = subparsers.add_parser("library-search", help="Search the generated library catalog by title, date, keyword, or summary.")
+    library_search_parser.add_argument("--vault", default="memory-vault", help="Memory vault directory.")
+    library_search_parser.add_argument("--query", required=True, help="Search query.")
+    library_search_parser.add_argument("--limit", type=int, default=8, help="Maximum number of results.")
+    library_search_parser.set_defaults(func=library_search_command)
+
+    book_parser = subparsers.add_parser("export-book", help="Combine project lecture notes into one Markdown ebook draft.")
+    book_parser.add_argument("--vault", default="memory-vault", help="Memory vault directory.")
+    book_parser.add_argument("--project", required=True, help="Project name.")
+    book_parser.add_argument("--output", required=True, help="Output Markdown path.")
+    book_parser.add_argument("--title", help="Optional ebook title.")
+    book_parser.add_argument("--include-development", action="store_true", help="Include development notes after lecture notes.")
+    book_parser.set_defaults(func=export_book_command)
+
+    post_parser = subparsers.add_parser("export-post", help="Create a blog post draft or long tweet/thread draft from a session.")
+    post_parser.add_argument("--vault", default="memory-vault", help="Memory vault directory.")
+    post_parser.add_argument("--project", required=True, help="Project name.")
+    post_parser.add_argument("--session", default="latest", help="Session id, or latest.")
+    post_parser.add_argument("--format", choices=["blog", "tweet"], default="blog", help="Output style.")
+    post_parser.add_argument("--output", required=True, help="Output Markdown/text path.")
+    post_parser.set_defaults(func=export_post_command)
 
     review_parser = subparsers.add_parser("review-patterns", help="Create a human review checklist for accumulated patterns.")
     review_parser.add_argument("--vault", default="memory-vault", help="Memory vault directory.")

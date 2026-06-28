@@ -4,15 +4,15 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "preserve-project-conversations"
-version = "0.2.1"
-description = "Local-first CLI for preserving LLM project conversations as portable layered memory."
+version = "0.3.0"
+description = "Local-first CLI for turning LLM project conversations into five-layer memory, lecture notes, and searchable libraries."
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
 authors = [
   { name = "sinmb79" }
 ]
-keywords = ["llm", "memory", "conversation", "local-first", "cli"]
+keywords = ["llm", "memory", "conversation", "lecture-notes", "library", "local-first", "cli"]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Environment :: Console",
@@ -41,3 +41,49 @@ py-modules = ["paideia_memory"]
 
 [tool.setuptools.package-dir]
 "" = "scripts"
+
+[tool.setuptools.data-files]
+"share/preserve-project-conversations" = [
+  "README.md",
+  "README.ko.md",
+  "SKILL.md",
+  "CHANGELOG.md",
+  "CONTRIBUTING.md",
+  "SECURITY.md",
+]
+"share/preserve-project-conversations/agents" = [
+  "agents/README.md",
+  "agents/claude.md",
+  "agents/hermes.yaml",
+  "agents/openai.yaml",
+  "agents/openclaw.yaml",
+]
+"share/preserve-project-conversations/docs" = [
+  "docs/RELEASE.md",
+  "docs/RELEASE.ko.md",
+  "docs/SKILLPACKS.md",
+]
+"share/preserve-project-conversations/examples" = [
+  "examples/project-memory-conversation.md",
+]
+"share/preserve-project-conversations/references" = [
+  "references/masterplan.md",
+  "references/research-notes.md",
+  "references/schema.md",
+]
+"share/preserve-project-conversations/skillpacks/anthropic-claude/preserve-project-conversations" = [
+  "skillpacks/anthropic-claude/preserve-project-conversations/SKILL.md",
+]
+"share/preserve-project-conversations/skillpacks/anthropic-claude/preserve-project-conversations/agents" = [
+  "skillpacks/anthropic-claude/preserve-project-conversations/agents/openai.yaml",
+]
+"share/preserve-project-conversations/skillpacks/openclaw-hermes/preserve-project-conversations" = [
+  "skillpacks/openclaw-hermes/preserve-project-conversations/SKILL.md",
+]
+"share/preserve-project-conversations/skillpacks/openclaw-hermes/preserve-project-conversations/agents" = [
+  "skillpacks/openclaw-hermes/preserve-project-conversations/agents/openai.yaml",
+]
+"share/preserve-project-conversations/skillpacks/chatgpt-gpt" = [
+  "skillpacks/chatgpt-gpt/instructions.md",
+  "skillpacks/chatgpt-gpt/knowledge.md",
+]

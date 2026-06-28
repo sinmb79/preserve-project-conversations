@@ -1,0 +1,20 @@
+name: "preserve-project-conversations"
+display_name: "Preserve Project Conversations"
+description: "Hermes agent binding for preserving owner-controlled project memory and generating study/library/publishing views."
+entrypoint: "paideia-memory"
+skill_path: "skillpacks/openclaw-hermes/preserve-project-conversations"
+handoff_command: "paideia-memory context --project <project> --vault <vault>"
+owner_memory_contract:
+  - "01_raw_conversation.md"
+  - "02_major_outline.md"
+  - "03_minor_outline.md"
+  - "04_summary.md"
+  - "05_patterns.md"
+derived_views:
+  - "06_lecture_notes.md"
+  - "07_development_notes.md"
+  - "_library/index.md"
+  - "_library/catalog.json"
+safety:
+  - "Keep vaults local unless the owner explicitly requests sharing."
+  - "Run scan before external export."

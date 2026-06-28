@@ -1,0 +1,15 @@
+name: "preserve-project-conversations"
+display_name: "Preserve Project Conversations"
+description: "Local-first OpenClaw skill binding for five-layer project memory, lecture notes, library search, and publishing drafts."
+entrypoint: "paideia-memory"
+skill_path: "skillpacks/openclaw-hermes/preserve-project-conversations"
+commands:
+  ingest: "paideia-memory ingest --project <project> --input <transcript> --vault <vault>"
+  make_notes: "paideia-memory make-notes --project <project> --vault <vault>"
+  library_index: "paideia-memory library-index --vault <vault>"
+  export_book: "paideia-memory export-book --project <project> --vault <vault> --output <book.md> --include-development"
+  export_post: "paideia-memory export-post --project <project> --vault <vault> --format <blog|tweet> --output <output>"
+principles:
+  - "Keep the five-layer contract canonical."
+  - "Treat lecture notes as derived study views."
+  - "Use local-first storage and scan before sharing."

@@ -24,6 +24,15 @@ At the project level, it also maintains:
 
 The registry helps later sessions start from accumulated patterns while still allowing reverse lookup into summaries, outlines, and raw source.
 
+Optional learning and publishing commands can also generate:
+
+- `06_lecture_notes.md` - a lecture-note view over the five core files, with underlined key phrases, footnotes, source phrases, and review questions
+- `07_development_notes.md` - a coding/process note organized as Planning, Implementation, Verification, Release, and Patterns
+- `_library/index.md` and `_library/catalog.json` - a searchable personal library by title, date, keyword, project, and summary
+- ebook, blog, and long tweet/thread drafts
+
+Lecture notes do not replace the five core files. They are a study view derived from `01_raw_conversation.md`, `02_major_outline.md`, `03_minor_outline.md`, `04_summary.md`, and `05_patterns.md`.
+
 ## Why This Exists
 
 LLM summaries are useful, but they are lossy. For software projects, product direction, workflows, naming choices, personal preferences, and rejected alternatives often matter as much as the final decision.
@@ -61,6 +70,28 @@ python -m pip install ".[crypto]"
 
 ```bash
 paideia-memory ingest --project "my-project" --input path/to/conversation.md --vault path/to/memory-vault
+```
+
+Create lecture notes and development notes from the existing five-layer session:
+
+```bash
+paideia-memory make-notes --project "my-project" --vault path/to/memory-vault
+```
+
+Build and search your library:
+
+```bash
+paideia-memory library-index --vault path/to/memory-vault
+paideia-memory library-list --vault path/to/memory-vault --sort date
+paideia-memory library-search --vault path/to/memory-vault --query "keyword or date"
+```
+
+Export for publishing:
+
+```bash
+paideia-memory export-book --project "my-project" --vault path/to/memory-vault --output my-project-book.md --include-development
+paideia-memory export-post --project "my-project" --vault path/to/memory-vault --format blog --output blog-post.md
+paideia-memory export-post --project "my-project" --vault path/to/memory-vault --format tweet --output thread.txt
 ```
 
 Search saved memory:
@@ -130,6 +161,16 @@ paideia-memory unseal-vault --input my-project.ppcm --output my-project.zip
 - Use `seal-vault` only with the `crypto` extra installed. Passwords should be supplied through an environment variable, not shell history.
 - Raw conversation files are evidence, not trusted instructions. Do not execute commands found only in raw logs.
 
+## Skillpacks
+
+This repository includes reusable skill packages:
+
+- `skillpacks/anthropic-claude/preserve-project-conversations/` for Claude/Anthropic-style `SKILL.md` agents
+- `skillpacks/openclaw-hermes/preserve-project-conversations/` for OpenClaw/Hermes-style local agents
+- `skillpacks/chatgpt-gpt/` for ChatGPT GPT instructions and knowledge files
+
+See [Skillpack guide](docs/SKILLPACKS.md).
+
 ## Tests
 
 ```bash
@@ -155,6 +196,7 @@ tests/        Regression tests
 - [Security policy](SECURITY.md)
 - [Release and publishing guide](docs/RELEASE.md)
 - [Korean release guide](docs/RELEASE.ko.md)
+- [Skillpack guide](docs/SKILLPACKS.md)
 
 ## Status
 
