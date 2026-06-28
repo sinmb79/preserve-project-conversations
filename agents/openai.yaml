@@ -1,0 +1,4 @@
+interface:
+  display_name: "Preserve Project Conversations"
+  short_description: "Save project chats as layered portable memory."
+  default_prompt: "Use $preserve-project-conversations to preserve this project conversation as raw, outline, summary, and pattern memory."
