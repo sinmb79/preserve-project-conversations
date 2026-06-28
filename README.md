@@ -147,6 +147,12 @@ scripts/      CLI implementation
 tests/        Regression tests
 ```
 
+## Project Docs
+
+- [Changelog](CHANGELOG.md)
+- [Contributing](CONTRIBUTING.md)
+- [Security policy](SECURITY.md)
+
 ## Status
 
 This is an early, practical prototype. Pattern extraction is currently rule-based and evidence-oriented. It does not perform model-weight training or automatic reinforcement learning. Human review commands are provided so users can approve, downgrade, or reject pattern claims explicitly.
