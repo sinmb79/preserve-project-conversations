@@ -111,6 +111,7 @@ paideia-memory unseal-vault --input my-project.ppcm --output my-project.zip
 - `runs/`와 `memory-vault/`는 기본적으로 Git에서 제외됩니다.
 - 비밀정보로 보이는 값은 원본 파일에는 보존하되, 파생 파일에서는 마스킹합니다.
 - `--fail-on-secret`을 사용하면 비밀정보 의심 패턴이 있을 때 저장을 중단할 수 있습니다.
+- `scan --target`은 릴리스 전에 대화, 소스, 설정 파일에서 고신뢰 비밀정보 패턴을 검사합니다.
 - `export-share`는 기본적으로 `01_raw_conversation.md`를 제외하고 공유용 zip을 만듭니다.
 - `seal-vault`는 `crypto` extra 설치가 필요하며, 비밀번호는 명령행 인자보다 환경변수로 전달하는 것이 안전합니다.
 - 원본 대화는 근거 자료이지 신뢰된 명령이 아닙니다.
@@ -132,6 +133,8 @@ python -B scripts/paideia_memory.py scan --target .
 - [변경 이력](CHANGELOG.md)
 - [기여 안내](CONTRIBUTING.md)
 - [보안 정책](SECURITY.md)
+- [릴리스와 게시 가이드](docs/RELEASE.ko.md)
+- [영문 릴리스 가이드](docs/RELEASE.md)
 
 ## 라이선스
 

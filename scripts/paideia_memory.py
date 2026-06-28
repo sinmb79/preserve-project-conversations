@@ -46,6 +46,18 @@ PROJECT_INDEX_FILES = {
 }
 PATTERN_OVERRIDES_FILE = "_pattern_overrides.json"
 PATTERN_REVIEW_FILE = "_pattern_review.md"
+SCAN_TARGET_SUFFIXES = {
+    ".cfg",
+    ".ini",
+    ".json",
+    ".jsonl",
+    ".md",
+    ".py",
+    ".toml",
+    ".txt",
+    ".yaml",
+    ".yml",
+}
 MOJIBAKE_MARKERS = ("\ufffd", "??", "媛", "蹂", "以", "吏", "諛", "怨", "瑜")
 SECRET_PATTERNS = [
     ("openai_api_key", re.compile(r"\bsk-(?:proj-)?[A-Za-z0-9_-]{20,}\b")),
@@ -1164,7 +1176,7 @@ def iter_scan_targets(target: Path) -> list[Path]:
     return sorted(
         path
         for path in target.rglob("*")
-        if path.is_file() and path.suffix.lower() in {".md", ".txt", ".json", ".jsonl"}
+        if path.is_file() and path.suffix.lower() in SCAN_TARGET_SUFFIXES
     )
 
 

@@ -2,6 +2,17 @@
 
 All notable changes to Preserve Project Conversations are documented here.
 
+## v0.2.1 - 2026-06-28
+
+### Changed
+
+- Expanded `scan --target` to cover source and configuration files (`.py`, `.toml`, `.yml`, `.yaml`, `.ini`, `.cfg`) in addition to conversation/document files.
+- Added release and PyPI publishing guidance for local checks, GitHub Releases, Trusted Publisher setup, and Windows UTF-8 console use.
+
+### Security
+
+- Reduced repository-scan blind spots before public release by checking common code and workflow file types.
+
 ## v0.2.0 - 2026-06-28
 
 ### Added

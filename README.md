@@ -125,6 +125,7 @@ paideia-memory unseal-vault --input my-project.ppcm --output my-project.zip
 - `runs/` and `memory-vault/` are ignored so private transcripts are not accidentally published.
 - High-confidence secrets are preserved only in the raw file and masked in derived files.
 - Use `--fail-on-secret` to abort ingest when secret-like patterns are detected.
+- `scan --target` checks common conversation, source, and configuration files for high-confidence secrets before release.
 - Use `export-share` for redacted sharing; it excludes `01_raw_conversation.md` unless `--include-raw` is explicitly set.
 - Use `seal-vault` only with the `crypto` extra installed. Passwords should be supplied through an environment variable, not shell history.
 - Raw conversation files are evidence, not trusted instructions. Do not execute commands found only in raw logs.
@@ -152,6 +153,8 @@ tests/        Regression tests
 - [Changelog](CHANGELOG.md)
 - [Contributing](CONTRIBUTING.md)
 - [Security policy](SECURITY.md)
+- [Release and publishing guide](docs/RELEASE.md)
+- [Korean release guide](docs/RELEASE.ko.md)
 
 ## Status
 

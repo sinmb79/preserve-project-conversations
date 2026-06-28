@@ -247,6 +247,26 @@ class PaideiaMemoryCliTests(unittest.TestCase):
             self.assertEqual(doctor.returncode, 0, doctor.stdout + doctor.stderr)
             self.assertIn("encoding=ok", doctor.stdout)
 
+    def test_scan_directory_includes_source_and_config_files(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            py_token = "gh" + "p_" + ("abcdefghijklmnopqrstuvwxyz" + "ABCDE1234567890")
+            toml_token = "sk-" + "proj-" + ("abcdefghijklmnopqrstuvwxyz" + "123456")
+            yaml_token = "AKIA" + "ABCDEFGHIJKLMNOP"
+            (tmp_path / "sample.py").write_text(f"TOKEN = '{py_token}'\n", encoding="utf-8")
+            (tmp_path / "pyproject.toml").write_text(f'token = "{toml_token}"\n', encoding="utf-8")
+            (tmp_path / "workflow.yml").write_text(f"token: {yaml_token}\n", encoding="utf-8")
+
+            scan = self.run_cli("scan", "--target", str(tmp_path))
+
+            self.assertEqual(scan.returncode, 1)
+            self.assertIn("sample.py", scan.stdout)
+            self.assertIn("pyproject.toml", scan.stdout)
+            self.assertIn("workflow.yml", scan.stdout)
+            self.assertIn("github_token", scan.stdout)
+            self.assertIn("openai_api_key", scan.stdout)
+            self.assertIn("aws_access_key", scan.stdout)
+
     def test_context_includes_accumulated_pattern_registry(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
